@@ -150,9 +150,14 @@ func (a *Apt) AddKeys() error {
 	}
 
 	for _, keyURL := range a.Keys {
-		if out, err := a.command.Output("/", "apt-key", "--keyring", a.trustedKeys, "adv", "--fetch-keys", keyURL); err != nil {
+		keyFile, err := a.download(keyURL)
+		if err != nil {
+			return err
+		}
+		if out, err := a.command.Output("/", "apt-key", "--keyring", a.trustedKeys, "adv", "--import", keyFile); err != nil {
 			return fmt.Errorf("could not add apt key %s\n\n%s\n\n%s", keyURL, out, err)
 		}
+		os.Remove(keyFile)
 	}
 
 	return nil
@@ -208,7 +213,7 @@ func (a *Apt) DownloadAll() error {
 	}
 
 	for _, pkg := range debPackages {
-		err := a.download(pkg)
+		_, err := a.download(pkg)
 		if err != nil {
 			return err
 		}
@@ -248,25 +253,25 @@ func (a *Apt) install(pkg string) error {
 	return nil
 }
 
-func (a *Apt) download(pkg string) error {
+func (a *Apt) download(pkg string) (string, error) {
 	var lastModLocal time.Time
 
 	downloadedPkg := filepath.Join(a.archiveDir, filepath.Base(pkg))
 	exists, err := libbuildpack.FileExists(downloadedPkg)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	packageFile, err := os.OpenFile(downloadedPkg, os.O_RDWR|os.O_CREATE, os.ModePerm)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer packageFile.Close()
 
 	if exists {
 		localFileStat, err := packageFile.Stat()
 		if err != nil {
-			return err
+			return downloadedPkg, err
 		}
 		lastModLocal = localFileStat.ModTime()
 	} else {
@@ -275,7 +280,7 @@ func (a *Apt) download(pkg string) error {
 
 	resp, err := http.Get(pkg)
 	if err != nil {
-		return err
+		return downloadedPkg, err
 	}
 	defer resp.Body.Close()
 
@@ -285,18 +290,18 @@ func (a *Apt) download(pkg string) error {
 		if _, ok := err.(*time.ParseError); ok {
 			lastModRemote = time.Now()
 		} else {
-			return err
+			return downloadedPkg, err
 		}
 	}
 
 	diff := lastModRemote.Sub(lastModLocal)
 	if diff >= 0 {
 		if n, err := io.Copy(packageFile, resp.Body); err != nil {
-			return err
+			return downloadedPkg, err
 		} else if n < resp.ContentLength {
 			return fmt.Errorf("could only write %d bytes of total %d for pkg %s", n, resp.ContentLength, packageFile.Name())
 		}
 	}
 
-	return nil
+	return downloadedPkg, nil
 }
