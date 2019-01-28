@@ -299,7 +299,7 @@ func (a *Apt) download(pkg string) (string, error) {
 		if n, err := io.Copy(packageFile, resp.Body); err != nil {
 			return downloadedPkg, err
 		} else if n < resp.ContentLength {
-			return fmt.Errorf("could only write %d bytes of total %d for pkg %s", n, resp.ContentLength, packageFile.Name())
+			return downloadedPkg, fmt.Errorf("could only write %d bytes of total %d for pkg %s", n, resp.ContentLength, packageFile.Name())
 		}
 	}
 
